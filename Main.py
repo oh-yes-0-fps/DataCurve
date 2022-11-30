@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Union
 
-ONETHIRD = 1/3
+ONETHIRD:float = 1/3
 
 class interpMode(Enum):
     LINEAR = 0
@@ -67,6 +67,9 @@ class curveKey:
 
 
 class dataCurve:
+
+    hasBeenFinalized:bool = False
+
     def __init__(self, *args:curveKey):
         self.keys = []
         for i in args:
@@ -74,13 +77,23 @@ class dataCurve:
                 self.keys.append(i)
         self.keys.sort(key=curveKey.getTime)
 
+    #class properties being immutable besides addkeys is best
+    def __setattr__(self, __name: str, __value: Any) -> None:
+        pass
+
     def addKeys(self, *args:curveKey):
+        if self.hasBeenFinalized:return
         f_keys = []
         for i in args:
             if isinstance(i, curveKey):
                 f_keys.append(i)
         return sorted(self.keys.extend(f_keys), key = curveKey.getTime)
 
+    def finalize(self):
+        self.hasBeenFinalized = True
+        
+
+    
 
     def linInterp(key1:curveKey, key2:curveKey, timeIn:float) -> float:
         offset = (timeIn-key1.time)/(key2.time) * (key2.value - key1.value)
