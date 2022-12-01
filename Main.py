@@ -14,6 +14,7 @@ class interpMode(Enum):
     MANUAL = 1
     CUBIC = 2
     CONSTANT = 3
+    LAGRANGE = 4
 
     @staticmethod
     def fromStr(string: str):
@@ -84,12 +85,32 @@ class curveMath:
         return (outTan/PrevToNextTimeDiff) * TANG_MULTIPLIER
 
     @staticmethod
-    def __Lerp(A: float, B: float, X: float) -> float:
-        return A + (B-A)*X
+    def __Lerp(A: float, B: float, T: float) -> float:
+        return A + (B-A)*T
 
     @staticmethod
-    def __CubicInterp(A: float, B: float, C: float, D: float, X: float) -> float:
-        return (A*(X**3)) + (B*(X**2)) + (C*X) + D
+    def __QuadInterp(A: float, B: float, C: float, T: float) -> float:
+        return (A*(T**2)) + (B*T) + C
+
+    @staticmethod
+    def __CubicInterp(A: float, B: float, C: float, D: float, T: float) -> float:
+        return (A*(T**3)) + (B*(T**2)) + (C*T) + D
+
+    @staticmethod
+    def lagrangeInterp(_keyList: list, _time: float) -> float:
+        outValue: float = 0
+        for i in range(len(_keyList)):
+            curKey: curveKey = _keyList[i]
+            curValue: float = curKey.value
+            curTime: float = curKey.time
+            curWeight: float = 1
+            for j in range(len(_keyList)):
+                if i != j:
+                    otherKey: curveKey = _keyList[j]
+                    otherTime: float = otherKey.time
+                    curWeight *= (_time - otherTime) / (curTime - otherTime)
+            outValue += curValue * curWeight
+        return outValue
 
     @staticmethod
     def linInterp(_Key1: curveKey, _Key2: curveKey, timeIn: float) -> float:
@@ -98,7 +119,13 @@ class curveMath:
         return curveMath.__Lerp(_Key1.value, _Key2.value, timeOffset)
 
     @staticmethod
-    def bezInterp(_Key1: curveKey, _Key2: curveKey, timeIn: float) -> float:
+    def quadInterp(_Key1: curveKey, _Key2: curveKey, timeIn: float) -> float:
+        diff = _Key2.time - _Key1.time
+        timeOffset = (timeIn - _Key1.time) / diff
+        return curveMath.__QuadInterp(_Key1.value, _Key1.tangents.leave, _Key2.tangents.arrive, timeOffset)
+
+    @staticmethod
+    def cubicInterp(_Key1: curveKey, _Key2: curveKey, timeIn: float) -> float:
         diff = _Key2.time - _Key1.time
         timeOffset = (timeIn - _Key1.time) / diff
 
@@ -107,13 +134,14 @@ class curveMath:
         point2 = _Key2.value - (_Key2.tangents.arrive * diff * ONETHIRD)
         point3 = _Key2.value
 
+        # return curveMath.__CubicInterp(point0, point1, point2, point3, timeOffset)
+
         p01 = curveMath.__Lerp(point0, point1, timeOffset)
         p12 = curveMath.__Lerp(point1, point2, timeOffset)
         p23 = curveMath.__Lerp(point2, point3, timeOffset)
         p012 = curveMath.__Lerp(p01, p12, timeOffset)
         p123 = curveMath.__Lerp(p12, p23, timeOffset)
         p0123 = curveMath.__Lerp(p012, p123, timeOffset)
-
         return p0123
 
 
@@ -139,16 +167,23 @@ class dataCurve:
 
     def finalize(self):
         self.hasBeenFinalized = True
-        self.keys[0].setMode(interpMode.LINEAR)
-        self.keys[-1].setMode(interpMode.LINEAR)
+        # self.keys[0].setMode(interpMode.LINEAR)
+        # self.keys[-1].setMode(interpMode.LINEAR)
         for i in range(len(self.keys)):
             _Ky = self.keys[i]
             if _Ky.mode == interpMode.CUBIC:
-                p_Ky = self.keys[i-1]
-                n_Ky = self.keys[i+1]
-                tang = curveMath.AutoCalcTangent(
-                    p_Ky.time, p_Ky.value, _Ky.time, _Ky.value, n_Ky.time, n_Ky.value, TANG_TENSION)
-                _Ky.tangents.fromFloat(tang)
+                if i == 0:
+                    _Ky.tangents.leave = 0
+                if i == len(self.keys)-1:
+                    _Ky.tangents.arrive = 0
+                try:
+                    p_Ky = self.keys[i-1]
+                    n_Ky = self.keys[i+1]
+                    tang = curveMath.AutoCalcTangent(
+                        p_Ky.time, p_Ky.value, _Ky.time, _Ky.value, n_Ky.time, n_Ky.value, TANG_TENSION)
+                    _Ky.tangents.fromFloat(tang)
+                except:
+                    pass
 
     def eval(self, timeIn: float) -> float:
         if not self.hasBeenFinalized:
@@ -160,7 +195,9 @@ class dataCurve:
                 if _Ky.mode == interpMode.LINEAR:
                     return curveMath.linInterp(p_Ky, _Ky, timeIn)
                 elif _Ky.mode == interpMode.CUBIC or _Ky.mode == interpMode.MANUAL:
-                    return curveMath.bezInterp(p_Ky, _Ky, timeIn)
+                    return curveMath.cubicInterp(p_Ky, _Ky, timeIn)
+                elif _Ky.mode == interpMode.LAGRANGE:
+                    return curveMath.lagrangeInterp(self.keys, timeIn)
                 else:
                     return p_Ky.value
         return self.keys[-1].value
